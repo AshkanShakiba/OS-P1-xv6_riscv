@@ -145,6 +145,7 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
+  p->ticks = ticks;
 
   return p;
 }
@@ -681,3 +682,19 @@ procdump(void)
     printf("\n");
   }
 }
+
+int
+getProcTick(int pid) {
+    struct proc *p;
+    for (p = proc; p < &proc[NPROC]; p++) {
+        acquire(&p->lock);
+        if (pid == p->pid) {
+            int result = ticks - (p->ticks);
+            release(&p->lock);
+            return result;
+        }
+        release(&p->lock);
+    }
+    return -1;
+}
+
