@@ -104,3 +104,18 @@ sys_sysinfo(void) {
     argaddr(0, &info);
     return sysinfo(info);
 }
+
+uint64
+sys_childWait(void) {
+  uint64 u1;
+  uint64 u2;
+  argaddr(0, &u1);
+  argaddr(1, &u2);
+  return childWait(u1, u2);
+}
+
+
+uint64
+sys_toggleScheduler(void) {
+  return toggleScheduler();
+}

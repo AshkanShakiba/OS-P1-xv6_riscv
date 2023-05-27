@@ -241,4 +241,4 @@ add_executable(OS_P1_xv6_riscv
         fs.img
         LICENSE
         Makefile
-        README user/getProcTickTest.c kernel/sysinfo.h user/sysinfoTest.c)
+        README user/getProcTickTest.c kernel/sysinfo.h user/sysinfoTest.c user/schedulerTest.c)

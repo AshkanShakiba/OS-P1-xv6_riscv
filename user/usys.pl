@@ -38,3 +38,5 @@ entry("sleep");
 entry("uptime");
 entry("getProcTick");
 entry("sysinfo");
+entry("childWait");
+entry("toggleScheduler");

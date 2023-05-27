@@ -19,6 +19,13 @@ struct spinlock pid_lock;
 extern void forkret(void);
 static void freeproc(struct proc *p);
 
+enum SchedulerType {
+    DEFAULT,
+    FCFS
+};
+
+enum SchedulerType scheduler_type = DEFAULT;
+
 extern char trampoline[]; // trampoline.S
 
 // helps ensure that wakeups of wait()ing
@@ -147,6 +154,10 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
   p->ticks = ticks;
+  p->termination_time=0;
+  p->running_time=0;
+  p->ready_time=0;
+  p->sleeping_time=0;
 
   return p;
 }
@@ -376,6 +387,7 @@ exit(int status)
   wakeup(p->parent);
   
   acquire(&p->lock);
+  p->termination_time = ticks;
 
   p->xstate = status;
   p->state = ZOMBIE;
@@ -444,31 +456,61 @@ wait(uint64 addr)
 //  - eventually that process transfers control
 //    via swtch back to the scheduler.
 void
-scheduler(void)
-{
+round_robin_scheduler(struct cpu *c) {
   struct proc *p;
+  for (p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if (p->state == RUNNABLE) {
+      p->state = RUNNING;
+      c->proc = p;
+      swtch(&c->context, &p->context);
+      c->proc = 0;
+    }
+    release(&p->lock);
+  }
+}
+
+void fcfs_running(struct cpu *c) {
+  struct proc *p;
+  struct proc *first_process = 0;
+  for (p = proc; p < &proc[NPROC]; p++) {
+    if (p->state != RUNNABLE) {
+      continue;
+    }
+    if ((p->pid == 1 || p->pid == 2)) {
+      continue;
+    }
+    if (first_process == 0 || p->ticks < first_process->ticks) {
+      first_process = p;
+    }
+  }
+  if (first_process != 0) {
+    acquire(&first_process->lock);
+    if (first_process->state == RUNNABLE) {
+      first_process->state = RUNNING;
+      c->proc = first_process;
+      swtch(&c->context, &first_process->context);
+      c->proc = 0;
+    }
+    release(&first_process->lock);
+  } else {
+    if (first_process == 0) {
+      round_robin_scheduler(c);
+    }
+  }
+}
+
+void
+scheduler(void) {
   struct cpu *c = mycpu();
-  
+
   c->proc = 0;
-  for(;;){
-    // Avoid deadlock by ensuring that devices can interrupt.
+  for (;;) {
     intr_on();
-
-    for(p = proc; p < &proc[NPROC]; p++) {
-      acquire(&p->lock);
-      if(p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
-
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
-      }
-      release(&p->lock);
+    if (scheduler_type == DEFAULT) {
+      round_robin_scheduler(c);
+    } else {
+      fcfs_running(c);
     }
   }
 }
@@ -726,4 +768,77 @@ sysinfo(uint64 addr) {
         return -1;
     else
         return 0;
+}
+
+void
+update_process_times() {
+  struct proc *p;
+  for (p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if (p->state == RUNNING) {
+      p->running_time++;
+    }
+    if (p->state == RUNNABLE) {
+      p->ready_time++;
+    }
+    if (p->state == SLEEPING) {
+      p->sleeping_time++;
+    }
+    release(&p->lock);
+  }
+}
+
+int
+childWait(uint64 addr, uint64 proc_time) {
+  struct proc *child;
+  int child_pid, have_children;
+  struct proc *p = myproc();
+  acquire(&wait_lock);
+  for (;;) {
+    have_children = 0;
+    for (child = proc; child < &proc[NPROC]; child++) {
+      if (child->parent == p) {
+        acquire(&child->lock);
+        have_children = 1;
+        if (child->state == ZOMBIE) {
+          child_pid = child->pid;
+          struct proc_times child_times;
+          child_times.burst_time = child->running_time;
+          child_times.turnaround_time = child->termination_time - child->ticks;
+          child_times.waiting_time = child->sleeping_time + child->ready_time;
+          if (addr != 0 && copyout(p->pagetable, addr, (char *) &child->xstate, sizeof(child->xstate)) < 0) {
+            release(&child->lock);
+            release(&wait_lock);
+            return -1;
+          }
+          if (proc_time != 0 && copyout(p->pagetable, proc_time, (char *) &child_times, sizeof(child_times)) < 0) {
+            release(&child->lock);
+            release(&wait_lock);
+            return -1;
+          }
+          freeproc(child);
+          release(&child->lock);
+          release(&wait_lock);
+          return child_pid;
+        }
+        release(&child->lock);
+      }
+    }
+    if (!have_children || killed(p)) {
+      release(&wait_lock);
+      return -1;
+    }
+    sleep(p, &wait_lock);
+  }
+}
+
+int
+toggleScheduler() {
+  if (scheduler_type == DEFAULT) {
+    scheduler_type = FCFS;
+    return 1;
+  } else {
+    scheduler_type = DEFAULT;
+    return 0;
+  }
 }

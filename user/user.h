@@ -24,6 +24,8 @@ int sleep(int);
 int uptime(void);
 int getProcTick(int);
 int sysinfo(int);
+int childWait(uint64, uint64);
+int toggleScheduler(void);
 
 // ulib.c
 int stat(const char*, struct stat*);

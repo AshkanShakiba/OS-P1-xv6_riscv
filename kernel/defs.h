@@ -110,6 +110,10 @@ int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
 int             getProcTick(int);
 int             sysinfo(uint64);
+void            update_process_times();
+int             childWait(uint64,uint64);
+int             toggleScheduler();
+
 
 // swtch.S
 void            swtch(struct context*, struct context*);

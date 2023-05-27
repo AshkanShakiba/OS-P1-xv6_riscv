@@ -106,4 +106,14 @@ struct proc {
   char name[16];               // Process name (debugging)
 
   uint ticks;
+  long termination_time;
+  long running_time;
+  long ready_time;
+  long sleeping_time;
+};
+
+struct proc_times {
+    long burst_time;
+    long turnaround_time;
+    long waiting_time;
 };
