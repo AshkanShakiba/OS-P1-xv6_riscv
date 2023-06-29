@@ -29,6 +29,28 @@ trapinithart(void)
   w_stvec((uint64)kernelvec);
 }
 
+int cowtrap(uint64 va) {
+  if (va >= MAXVA)
+    return -1;
+  struct proc* p = myproc();
+  pte_t* pte = walk(p->pagetable, va, 0);
+  if (pte == 0)
+    return -1;
+  uint pte_flags = PTE_FLAGS(*pte);
+  if ((pte_flags & PTE_COW) == 0)
+    return -1;
+  void* new = kalloc();
+  if (new == 0)
+    return -1;
+  pte_flags |= PTE_W;
+  pte_flags &= ~PTE_COW;
+  void* old = (void*)PTE2PA(*pte);
+  memmove(new, old, PGSIZE);
+  kfree(old);
+  *pte = PA2PTE(new) | pte_flags;
+  return 0;
+}
+
 //
 // handle an interrupt, exception, or system call from user space.
 // called from trampoline.S
@@ -65,6 +87,11 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if(r_scause() == 15) {
+    if (killed(p))
+      exit(-1);
+    if (cowtrap(r_stval()) < 0)
+      setkilled(p);
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
@@ -77,7 +104,7 @@ usertrap(void)
     exit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2)
+  if(which_dev == 2 && (myproc()->pid == 1 || myproc()->pid == 2))
     yield();
 
   usertrapret();
@@ -151,7 +178,7 @@ kerneltrap()
   }
 
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2 && myproc() != 0 && myproc()->state == RUNNING)
+  if(which_dev == 2 && myproc() != 0 && myproc()->state == RUNNING && (myproc()->pid == 1 || myproc()->pid == 2))
     yield();
 
   // the yield() may have caused some traps to occur,
